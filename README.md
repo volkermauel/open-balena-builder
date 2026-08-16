@@ -62,6 +62,10 @@ FROM harbor.lan/dockerhub/balenalib/raspberrypi4-64-node:24-bookworm AS base
 
 See [docs/cache-registry-harbor.md](docs/cache-registry-harbor.md) for the full design, Harbor setup notes, and rollout guidance.
 
+### Release Versioning
+
+Releases built through this server get a real semver version instead of `0.0.0`: when an uploaded project defines no version, the builder assigns the next patch version of the fleet's latest release (e.g. `1.2.3` → `1.2.4`; a brand-new fleet starts at `0.0.1`). To pin a version yourself, add a top-level `version:` key to your project's `balena.yml` — it always takes precedence, exactly like on balenaCloud. The assigned version shows up in the build log (`balena push` output) and in your fleet's release list.
+
 ## Usage
 
 Once installed, you can utilize the builder via `balena-cli` by running `balena push <fleet name>` - and watch it build / deploy remotely!

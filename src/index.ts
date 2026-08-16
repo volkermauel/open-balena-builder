@@ -8,6 +8,11 @@ import * as stream from 'stream';
 import axios from 'axios';
 import * as tar from 'tar';
 import { parseRewriteMap, rewriteDockerfilesIn } from './dockerfile-rewrite';
+import {
+  ensureProjectVersion,
+  nextVersion,
+  readProjectVersion,
+} from './release-versioning';
 
 const PORT = 80;
 const DEBUG = true;
@@ -200,6 +205,17 @@ const getReleaseIdFromCommit = async (commit: string, token: string) =>
     )
   )?.[0]?.id;
 
+// Helper function to get the latest release semver for an application.
+// Used to auto-assign the next patch version when the project ships no
+// balena.yml version (releases would otherwise be stored as 0.0.0).
+const getLatestReleaseSemver = async (slug: string, token: string) =>
+  (
+    await apiGet(
+      `release?$select=semver&$filter=belongs_to__application/any(a:a/slug%20eq%20%27${slug}%27)&$orderby=id%20desc`,
+      token
+    )
+  )?.[0]?.semver;
+
 // Helper function to get image locations from release id
 const getImages = async (releaseId: number, token: string) => {
   const imageIds = (
@@ -300,6 +316,30 @@ export async function createHttpServer(listenPort: number) {
         log(
           `FROM rewrite: ${rewrittenCount} Dockerfile(s) rewritten via ${cacheRegistryHost}`
         );
+      }
+
+      // Auto-assign the next release version when the project defines none.
+      // balena-cli takes the version solely from balena.yml; without it the
+      // API stores releases as 0.0.0. Bump the patch segment of the app's
+      // latest release (0.0.1 for a brand-new fleet). A project-provided
+      // version always wins. Failures degrade gracefully to 0.0.0 behavior
+      // (e.g. older openBalena APIs without the semver field).
+      try {
+        const projectVersion = readProjectVersion(workdir);
+        if (projectVersion) {
+          log(`Release version: ${projectVersion} (from project balena.yml)`);
+        } else {
+          const latest = await getLatestReleaseSemver(String(slug), token);
+          const version = nextVersion(latest);
+          ensureProjectVersion(workdir, version);
+          log(
+            `Release version: ${version} (auto-assigned; latest release was ${
+              latest ?? 'none'
+            })`
+          );
+        }
+      } catch (err) {
+        log(`Release versioning skipped: ${(err as Error).message}`);
       }
 
       // Authenticate with openbalena
