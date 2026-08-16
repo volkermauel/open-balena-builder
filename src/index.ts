@@ -7,6 +7,7 @@ import { once } from 'events';
 import * as stream from 'stream';
 import axios from 'axios';
 import * as tar from 'tar';
+import { parseRewriteMap, rewriteDockerfilesIn } from './dockerfile-rewrite';
 
 const PORT = 80;
 const DEBUG = true;
@@ -18,6 +19,24 @@ const deltaHost = String(process.env.DELTA_HOST ?? '');
 const dockerHostAmd64 = String(process.env.DOCKER_HOST_AMD64 ?? '');
 const dockerHostArm64 = String(process.env.DOCKER_HOST_ARM64 ?? '');
 const builderToken = String(process.env.TOKEN_AUTH_BUILDER_TOKEN);
+
+// Optional cache registry (e.g. a Harbor proxy-cache project) so base image
+// pulls are served locally instead of from the upstream registry. Enabled
+// when CACHE_REGISTRY_HOST is set. See docs/cache-registry-harbor.md.
+const cacheRegistryHost = String(process.env.CACHE_REGISTRY_HOST ?? '')
+  .replace(/^https?:\/\//, '')
+  .replace(/\/+$/, '');
+const cacheRegistryMap = parseRewriteMap(
+  String(process.env.CACHE_REGISTRY_MAP ?? 'docker.io=dockerhub')
+);
+const cacheRegistryOptions =
+  cacheRegistryHost !== '' && cacheRegistryMap.size > 0
+    ? { host: cacheRegistryHost, map: cacheRegistryMap }
+    : null;
+if (cacheRegistryHost !== '' && cacheRegistryOptions === null)
+  console.error(
+    '[open-balena-builder] CACHE_REGISTRY_HOST is set but CACHE_REGISTRY_MAP is empty; FROM rewriting disabled'
+  );
 
 // Debug healper function
 const log = (msg: string) => {
@@ -224,7 +243,7 @@ const generateDeltas = async (oldId: number, newId: number, token: string) => {
   return deltas;
 };
 
-async function createHttpServer(listenPort: number) {
+export async function createHttpServer(listenPort: number) {
   const app = express();
 
   app.post('/v3/build', async (req, res) => {
@@ -239,7 +258,9 @@ async function createHttpServer(listenPort: number) {
       const token = req.headers.authorization?.split(' ')?.[1];
 
       // Never log sensitive headers (Authorization carries the caller's JWT)
-      const { authorization: _auth, ...safeHeaders } = req.headers;
+      const safeHeaders = Object.fromEntries(
+        Object.entries(req.headers).filter(([name]) => name !== 'authorization')
+      );
       log(
         `Build request received: ${JSON.stringify({
           query: req.query,
@@ -268,6 +289,18 @@ async function createHttpServer(listenPort: number) {
         extract.on('error', reject);
         extract.on('end', resolve);
       });
+
+      // Route base image pulls through the cache registry when configured
+      if (cacheRegistryOptions) {
+        const rewrittenCount = rewriteDockerfilesIn(
+          workdir,
+          cacheRegistryOptions,
+          log
+        );
+        log(
+          `FROM rewrite: ${rewrittenCount} Dockerfile(s) rewritten via ${cacheRegistryHost}`
+        );
+      }
 
       // Authenticate with openbalena
       await exec(['balena', 'login', '-t', token], workdir);
@@ -488,9 +521,12 @@ async function createHttpServer(listenPort: number) {
     if (!headlessReturned) res.end();
   });
 
-  app.listen(listenPort, () => {
+  // Returning the server handle lets tests bind to an ephemeral port
+  return app.listen(listenPort, () => {
     log(`Listening on port: ${listenPort}`);
   });
 }
 
-createHttpServer(PORT);
+// Only start the production server when run directly (node dist/index.js);
+// tests import createHttpServer instead.
+if (require.main === module) createHttpServer(PORT);
