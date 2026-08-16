@@ -1,27 +1,24 @@
-FROM node:22-bookworm-slim
+FROM node:24-bookworm-slim
 
 ARG DEBIAN_FRONTEND=noninteractive
 
 RUN apt-get update && apt-get install -y \
-    nodejs \
     node-typescript \
     jq \
     docker-compose \
-    curl \
-    tar \
-    gzip \
     && rm -rf /var/lib/apt/lists/*
 
-ARG BALENA_CLI_VERSION=22.5.5
-ENV BALENA_CLI_DIR=/usr/local/balena-cli
-ENV PATH="${BALENA_CLI_DIR}/balena/bin:${PATH}"
+ARG BALENA_CLI_VERSION=25.2.3
 
-RUN curl -fsSL \
-    "https://github.com/balena-io/balena-cli/releases/download/v${BALENA_CLI_VERSION}/balena-cli-v${BALENA_CLI_VERSION}-linux-x64-standalone.tar.gz" \
-    -o balena-cli.tar.gz && \
-  mkdir -p "${BALENA_CLI_DIR}" && \
-  tar -xzf balena-cli.tar.gz -C "${BALENA_CLI_DIR}" && \
-  rm balena-cli.tar.gz
+# Native modules (e.g. @ronomon/direct-io) need a compiler toolchain at install
+# time only: install it, build, then purge it in the same layer to stay slim.
+RUN apt-get update && apt-get install -y --no-install-recommends \
+    make \
+    g++ \
+  && npm install -g balena-cli@${BALENA_CLI_VERSION} \
+  && apt-get purge -y make g++ \
+  && apt-get autoremove -y \
+  && rm -rf /var/lib/apt/lists/*
 
 WORKDIR /usr/src/app
 
