@@ -1,9 +1,13 @@
 # Never send these to the docker build context
 .git
 .github
+.docs
+docs
 .pi
 node_modules
 dist
+dist-test
+coverage
 npm-debug.log*
 .eslint*
 .prettier*
@@ -12,3 +16,5 @@ npm-debug.log*
 Dockerfile
 README.md
 LICENSE
+tsconfig.test.json
+src/**/*.test.ts
