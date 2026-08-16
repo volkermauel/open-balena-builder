@@ -1,0 +1,14 @@
+# Never send these to the docker build context
+.git
+.github
+.pi
+node_modules
+dist
+npm-debug.log*
+.eslint*
+.prettier*
+.stylelintrc
+.dockerignore
+Dockerfile
+README.md
+LICENSE

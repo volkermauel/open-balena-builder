@@ -238,10 +238,12 @@ async function createHttpServer(listenPort: number) {
         req.query;
       const token = req.headers.authorization?.split(' ')?.[1];
 
+      // Never log sensitive headers (Authorization carries the caller's JWT)
+      const { authorization: _auth, ...safeHeaders } = req.headers;
       log(
         `Build request received: ${JSON.stringify({
           query: req.query,
-          headers: req.headers,
+          headers: safeHeaders,
         })}`
       );
       if (!slug) throw new Error('app slug must be specified');
@@ -256,12 +258,19 @@ async function createHttpServer(listenPort: number) {
       workdir = `/tmp/${uuid}`;
       fs.mkdirSync(workdir);
 
-      // Extract tar stream to workdir
-      req.pipe(tar.x({ cwd: workdir }));
-      await once(req, 'end');
+      // Extract tar stream to workdir. tar@7 rejects absolute paths and `..`
+      // entries by default; surface extraction errors to the client instead
+      // of crashing the process on malicious archives.
+      await new Promise<void>((resolve, reject) => {
+        const extract = tar.x({ cwd: workdir });
+        req.pipe(extract);
+        req.on('error', reject);
+        extract.on('error', reject);
+        extract.on('end', resolve);
+      });
 
       // Authenticate with openbalena
-      await exec(['/usr/local/balena-cli/balena/bin/balena', 'login', '-t', token], workdir);
+      await exec(['balena', 'login', '-t', token], workdir);
 
       // Get application architecture
       const arch = await getArch(String(slug), token);
@@ -299,7 +308,7 @@ async function createHttpServer(listenPort: number) {
       // Build image, deploy as draft release, and return stream
       const { spawnStream } = await exec(
         [
-          '/usr/local/balena-cli/balena/bin/balena',
+          'balena',
           'deploy',
           String(slug),
           '--build',
@@ -433,7 +442,7 @@ async function createHttpServer(listenPort: number) {
         log('Finalizing release');
 
         const finalizeRelease = exec(
-          ['/usr/local/balena-cli/balena/bin/balena', 'release', 'finalize', newCommit],
+          ['balena', 'release', 'finalize', newCommit],
           workdir,
           envAdd,
           false

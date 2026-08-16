@@ -2,8 +2,8 @@
     "compilerOptions": {
         "module": "CommonJS",
         "esModuleInterop": true,
-        "target": "es5",
-        "lib": ["es5", "es6" ],
+        "target": "ES2022",
+        "lib": ["ES2022"],
         "noImplicitAny": true,
         "noUnusedLocals": false,
         "noUnusedParameters": true,

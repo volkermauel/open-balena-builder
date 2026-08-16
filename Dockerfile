@@ -3,7 +3,6 @@ FROM node:24-bookworm-slim
 ARG DEBIAN_FRONTEND=noninteractive
 
 RUN apt-get update && apt-get install -y \
-    node-typescript \
     jq \
     docker-compose \
     && rm -rf /var/lib/apt/lists/*
@@ -28,7 +27,7 @@ COPY ./package.json ./
 COPY ./package-lock.json ./
 
 RUN npm ci --no-fund --no-update-notifier && \
-    tsc
+    npm run build
 
 COPY ./start.sh ./
 
